@@ -1,0 +1,5 @@
+# One company domain per line. Blank lines and # comments are ignored.
+# A .csv works too — the first column is read, a "domain" header is skipped.
+stripe.com
+shopify.com
+notion.so
