@@ -5,7 +5,7 @@ import { buildConfig, USAGE } from './config.js';
 import { createLogger } from './logger.js';
 import { normalizeDomain } from './parse.js';
 import { openBrowser, scrapeDomain } from './scraper.js';
-import { appendCsv, readDomainList, writeCsv } from './csv.js';
+import { appendCsv, parseCsv, readDomainList, writeCsv } from './csv.js';
 
 const DOMAIN_CSV_HEADER = [
   'redirecting_domain', 'target_domain', 'listing', 'source_url', 'checked_at',
@@ -15,6 +15,14 @@ const SUMMARY_HEADER = [
   'target_domain', 'redirecting_domain_count', 'reported_total', 'listing',
   'pages_scraped', 'status', 'error', 'source_url', 'csv_file', 'checked_at',
 ];
+
+/** Rows already in the summary before this run's own appended rows. */
+async function readSummaryRows(file, appended) {
+  const { readFile } = await import('node:fs/promises');
+  const rows = parseCsv(await readFile(file, 'utf8')).filter((r) => r.some((c) => c !== ''));
+  const body = rows.slice(1); // header
+  return body.slice(0, Math.max(body.length - appended, 0));
+}
 
 /** Collapse a multi-line driver error into one short CSV-friendly line. */
 function errorLine(error) {
@@ -73,6 +81,15 @@ async function main(argv) {
   const summaryRows = [];
   let failures = 0;
 
+  // The summary is appended as domains finish, so a long run that is
+  // interrupted (or read while still going) still has its counts on disk.
+  const startFresh = !(config.resume && (await exists(config.summaryPath)));
+  if (startFresh) await writeCsv(config.summaryPath, SUMMARY_HEADER, []);
+  const record = async (row) => {
+    summaryRows.push(row);
+    await appendCsv(config.summaryPath, SUMMARY_HEADER, [row]);
+  };
+
   try {
     await pool(domains, config.concurrency, async (domain, index) => {
       const csvFile = path.join(config.outDir, `${domain}.csv`);
@@ -90,7 +107,7 @@ async function main(argv) {
           DOMAIN_CSV_HEADER,
           result.rows.map((row) => DOMAIN_CSV_HEADER.map((key) => row[key])),
         );
-        summaryRows.push([
+        await record([
           domain, result.rows.length, result.total ?? '', result.listing,
           result.pages, result.status, '', result.sourceUrl,
           path.relative(config.outDir, csvFile), result.checkedAt,
@@ -100,7 +117,7 @@ async function main(argv) {
       } catch (error) {
         failures += 1;
         const kind = error.name === 'BlockedError' ? error.kind : 'error';
-        summaryRows.push([
+        await record([
           domain, 0, '', '', 0, kind, errorLine(error), '', '',
           new Date().toISOString(),
         ]);
@@ -113,12 +130,12 @@ async function main(argv) {
   }
 
   if (summaryRows.length) {
-    summaryRows.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-    if (config.resume && (await exists(config.summaryPath))) {
-      await appendCsv(config.summaryPath, SUMMARY_HEADER, summaryRows);
-    } else {
-      await writeCsv(config.summaryPath, SUMMARY_HEADER, summaryRows);
-    }
+    // Rewrite in domain order now that the appended, completion-ordered rows
+    // are all in; a resumed run keeps the rows it inherited.
+    const previous = startFresh ? [] : (await readSummaryRows(config.summaryPath, summaryRows.length));
+    const all = [...previous, ...summaryRows]
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    await writeCsv(config.summaryPath, SUMMARY_HEADER, all);
     log.info(`Summary written to ${config.summaryPath}`);
   }
 
