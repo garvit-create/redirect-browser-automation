@@ -17,6 +17,12 @@ const SUMMARY_HEADER = [
   'status', 'error', 'csv_file', 'checked_at',
 ];
 
+/** Collapse a multi-line driver error into one short CSV-friendly line. */
+function errorLine(error) {
+  const message = String(error?.message || error);
+  return message.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
 const exists = (file) => access(file).then(() => true, () => false);
 
 /** Run `task` over `items` with at most `limit` in flight. */
@@ -94,9 +100,9 @@ async function main(argv) {
         failures += 1;
         const kind = error.name === 'BlockedError' ? error.kind : 'error';
         summaryRows.push([
-          domain, 0, '', 0, kind, error.message, '', new Date().toISOString(),
+          domain, 0, '', 0, kind, errorLine(error), '', new Date().toISOString(),
         ]);
-        log.error(`[${position}] ${domain}: ${kind} — ${error.message}`);
+        log.error(`[${position}] ${domain}: ${kind} — ${errorLine(error)}`);
       }
     });
   } finally {

@@ -1,5 +1,8 @@
-# One company domain per line. Blank lines and # comments are ignored.
-# A .csv works too — the first column is read, a "domain" header is skipped.
-stripe.com
-shopify.com
-notion.so
+b2bconsultancyservices.com
+b2bdrive.net
+b2bleadsai.com
+b2bprospectbridge.com
+b2bwizards.io
+beforehello.com
+bestleads.io
+bettrreach.com
