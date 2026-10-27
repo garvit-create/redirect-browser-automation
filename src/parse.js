@@ -117,6 +117,61 @@ export function detectBlock(html) {
 }
 
 /**
+ * Parse the "Redirects" section of a host.io domain page
+ * (https://host.io/<domain>), which is what anonymous visitors can see.
+ *
+ * The section looks like:
+ *   <h3 id="redirects-tab">Redirects</h3>
+ *   <div>There are <span>1,277 domains</span> which redirect to <span>x.com</span>.
+ *       <a href="/redirects/x.com">Show All</a></div>
+ *   <ul><li><a href="/stripecdn.com">stripecdn.com</a></li> ...</ul>
+ *
+ * host.io shows only a sample of the list here; `total` is its own count, so a
+ * caller can tell a complete list from a truncated one.
+ *
+ * @returns {{domains: string[], total: number|null, showAllPath: string|null,
+ *            found: boolean}}
+ */
+export function parseDomainPage(html, target) {
+  const anchor = html.search(/id=["']redirects-tab["']/i);
+  if (anchor === -1) return { domains: [], total: null, showAllPath: null, found: false };
+
+  // The section runs from its heading to the end of the list that follows it,
+  // and never past the next section heading — a domain with no redirects has
+  // no list of its own, so an unbounded slice would swallow the next section.
+  const rest = html.slice(anchor + 10);
+  const nextTab = rest.search(/id=["'][a-z-]+-tab["']/i);
+  const listEnd = html.indexOf('</ul>', anchor);
+  const bounds = [
+    listEnd === -1 ? html.length : listEnd,
+    nextTab === -1 ? html.length : anchor + 10 + nextTab,
+  ];
+  const section = html.slice(anchor, Math.min(...bounds));
+  const text = textOf(section);
+
+  let total = null;
+  const countMatch = /there\s+(?:are|is)\s+([\d,]+)\s+domains?\s+which\s+redirect/i.exec(text);
+  if (countMatch) total = Number(countMatch[1].replace(/,/g, ''));
+  else if (/there\s+are\s+no\s+domains?\s+which\s+redirect/i.test(text)) total = 0;
+
+  const showAll = /href=["'](\/redirects\/[^"']+)["']/i.exec(section);
+  const normalizedTarget = normalizeDomain(target);
+  const domains = [];
+  const seen = new Set();
+
+  ANCHOR_RE.lastIndex = 0;
+  let m;
+  while ((m = ANCHOR_RE.exec(section)) !== null) {
+    const domain = domainFromPath(toLocalPath(m[1]));
+    if (!domain || domain === normalizedTarget || seen.has(domain)) continue;
+    seen.add(domain);
+    domains.push(domain);
+  }
+
+  return { domains, total, showAllPath: showAll ? showAll[1] : null, found: true };
+}
+
+/**
  * Extract the redirecting domains from one results page.
  *
  * @param {string} html raw page HTML

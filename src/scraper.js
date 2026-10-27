@@ -3,8 +3,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   detectBlock,
-  looksEmpty,
   normalizeDomain,
+  parseDomainPage,
   parseRedirectsPage,
 } from './parse.js';
 
@@ -23,21 +23,31 @@ function loadChromium() {
   }
 }
 
+const trimSlash = (url) => url.replace(/\/+$/, '');
+export const domainUrl = (domain, baseUrl = 'https://host.io') =>
+  `${trimSlash(baseUrl)}/${encodeURIComponent(normalizeDomain(domain))}`;
 export const redirectsUrl = (domain, page = 1, baseUrl = 'https://host.io') => {
-  const base = `${baseUrl.replace(/\/+$/, '')}/redirects/${encodeURIComponent(normalizeDomain(domain))}`;
+  const base = `${trimSlash(baseUrl)}/redirects/${encodeURIComponent(normalizeDomain(domain))}`;
   return page > 1 ? `${base}?page=${page}` : base;
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
 
-/** Launch a browser and build a context shared by all workers. */
+/**
+ * Launch a browser and build a context shared by all workers.
+ *
+ * Following Camoufox's guidance, the context is kept internally consistent
+ * (engine's own user agent, one locale/timezone, a real viewport) rather than
+ * spoofing a user agent the rest of the fingerprint would contradict.
+ */
 export async function openBrowser(config) {
   const browser = await loadChromium().launch({ headless: !config.headful });
   const context = await browser.newContext({
-    userAgent: config.userAgent || undefined, // Chromium's own UA unless overridden
+    userAgent: config.userAgent || undefined,
     viewport: { width: 1366, height: 900 },
     locale: 'en-US',
+    timezoneId: 'UTC',
     storageState: config.storageState || undefined,
   });
   context.setDefaultTimeout(config.timeout);
@@ -53,7 +63,7 @@ export async function openBrowser(config) {
   return { browser, context };
 }
 
-class BlockedError extends Error {
+export class BlockedError extends Error {
   constructor(kind, url) {
     super(`host.io returned a ${kind} page for ${url}`);
     this.name = 'BlockedError';
@@ -61,100 +71,197 @@ class BlockedError extends Error {
   }
 }
 
-/** Fetch one results page, with retries on navigation errors and rate limits. */
-async function loadPage(context, url, config, log) {
+/** Read a loaded page, raising on block pages. */
+async function htmlOf(page, url) {
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+  const html = await page.content();
+  const blocked = detectBlock(html);
+  if (blocked) throw new BlockedError(blocked, url);
+  return html;
+}
+
+/**
+ * Open a domain's host.io page.
+ *
+ * By default this starts at the host.io homepage and uses its search box, the
+ * way a person would; `--direct` navigates straight to /<domain> instead.
+ */
+async function openDomainPage(page, domain, config, log) {
+  const target = normalizeDomain(domain);
+  const direct = domainUrl(target, config.baseUrl);
+
+  if (!config.direct) {
+    const home = trimSlash(config.baseUrl) + '/';
+    const response = await page.goto(home, { waitUntil: 'domcontentloaded' });
+    if (response && response.status() >= 400) throw new Error(`HTTP ${response.status()} for ${home}`);
+
+    const search = page.locator('form[action="/search"] input[name="domain"]').last();
+    await search.waitFor({ state: 'visible', timeout: config.timeout });
+    await search.click();
+    await search.fill('');
+    await search.type(target, { delay: jitter(60) }); // typed, not pasted
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: config.timeout }),
+      search.press('Enter'),
+    ]);
+
+    const landed = page.url();
+    if (new RegExp(`/${target.replace(/\./g, '\\.')}(?:[/?#]|$)`, 'i').test(landed)) {
+      return { html: await htmlOf(page, landed), url: landed, via: 'search' };
+    }
+    log.warn(`${target}: search landed on ${landed}; falling back to a direct URL`);
+  }
+
+  const response = await page.goto(direct, { waitUntil: 'domcontentloaded' });
+  const status = response ? response.status() : 0;
+  if (status === 429 || status === 503) throw new BlockedError('rate_limited', direct);
+  if (status >= 400) throw new Error(`HTTP ${status} for ${direct}`);
+  return { html: await htmlOf(page, direct), url: direct, via: 'direct' };
+}
+
+/** Run `attempt` with retries and exponential backoff. */
+async function withRetries(config, log, label, attempt) {
   let lastError;
-  for (let attempt = 1; attempt <= config.retries + 1; attempt += 1) {
-    const page = await context.newPage();
+  for (let tries = 1; tries <= config.retries + 1; tries += 1) {
     try {
-      const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
-      const status = response ? response.status() : 0;
-      if (status === 429 || status === 503) throw new BlockedError('rate_limited', url);
-      if (status >= 400) throw new Error(`HTTP ${status} for ${url}`);
-      await page.waitForLoadState('networkidle', { timeout: config.timeout }).catch(() => {});
-      const html = await page.content();
-      const blocked = detectBlock(html);
-      if (blocked) throw new BlockedError(blocked, url);
-      return { html, status };
+      return await attempt();
     } catch (error) {
       lastError = error;
-      const backoff = jitter(config.backoff * 2 ** (attempt - 1));
-      if (attempt <= config.retries) {
-        log.warn(`${url} failed (${error.message}); retry ${attempt}/${config.retries} in ${backoff}ms`);
-        await sleep(backoff);
-      }
-    } finally {
-      await page.close().catch(() => {});
+      if (tries > config.retries) break;
+      const backoff = jitter(config.backoff * 2 ** (tries - 1));
+      log.warn(`${label} failed (${String(error.message).split('\n')[0]}); retry ${tries}/${config.retries} in ${backoff}ms`);
+      await sleep(backoff);
     }
   }
   throw lastError;
 }
 
+async function dump(config, name, html) {
+  if (!config.saveHtml) return;
+  await mkdir(config.debugDir, { recursive: true });
+  await writeFile(path.join(config.debugDir, name), html, 'utf8');
+}
+
 /**
- * Scrape every page of host.io/redirects/<domain>.
+ * Try the full "Show All" listing, which host.io gates behind an account.
+ * Returns null when it is not reachable, so the sample is kept instead.
+ */
+async function scrapeFullList(context, target, config, log) {
+  const rows = [];
+  const seen = new Set();
+  let pageNum = 1;
+  let pages = 0;
+
+  while (pageNum && pages < config.maxPages) {
+    const url = redirectsUrl(target, pageNum, config.baseUrl);
+    const page = await context.newPage();
+    try {
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+      const status = response ? response.status() : 0;
+      if (status === 404 || status === 401 || status === 403) {
+        log.debug(`${target}: full list not available (HTTP ${status}) — sign in for it`);
+        return null;
+      }
+      if (status === 429 || status === 503) throw new BlockedError('rate_limited', url);
+      if (status >= 400) throw new Error(`HTTP ${status} for ${url}`);
+
+      const html = await htmlOf(page, url);
+      await dump(config, `${target}-full-p${pageNum}.html`, html);
+      const parsed = parseRedirectsPage(html, target, pageNum);
+      pages += 1;
+
+      let added = 0;
+      for (const entry of parsed.domains) {
+        if (seen.has(entry.domain)) continue;
+        seen.add(entry.domain);
+        rows.push({ redirecting_domain: entry.domain, source_url: url });
+        added += 1;
+      }
+      if (added === 0) break;
+      if (config.limitPerDomain && rows.length >= config.limitPerDomain) {
+        rows.length = config.limitPerDomain;
+        break;
+      }
+      pageNum = parsed.nextPage;
+      if (pageNum) await sleep(jitter(config.delay));
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
+
+  return rows.length ? { rows, pages } : null;
+}
+
+/**
+ * Collect the domains redirecting to one company domain.
  *
  * @returns {Promise<{domain: string, rows: object[], total: number|null,
- *                    pages: number, status: string, error: string|null}>}
+ *                    listing: string, status: string, sourceUrl: string}>}
  */
 export async function scrapeDomain(context, domain, config, log) {
   const target = normalizeDomain(domain);
   const checkedAt = new Date().toISOString();
-  const rows = [];
-  const seen = new Set();
-  let total = null;
-  let pages = 0;
-  let pageNum = 1;
 
-  while (pageNum && pages < config.maxPages) {
-    const url = redirectsUrl(target, pageNum, config.baseUrl);
-    const { html } = await loadPage(context, url, config, log);
-    pages += 1;
-
-    if (config.saveHtml) {
-      const file = path.join(config.debugDir, `${target}-p${pageNum}.html`);
-      await mkdir(config.debugDir, { recursive: true });
-      await writeFile(file, html, 'utf8');
+  const { html, url, via } = await withRetries(config, log, `${target} page`, async () => {
+    const page = await context.newPage();
+    try {
+      return await openDomainPage(page, target, config, log);
+    } finally {
+      await page.close().catch(() => {});
     }
+  });
 
-    const parsed = parseRedirectsPage(html, target, pageNum);
-    if (parsed.total !== null) total = parsed.total;
-
-    let added = 0;
-    for (const entry of parsed.domains) {
-      if (seen.has(entry.domain)) continue;
-      seen.add(entry.domain);
-      added += 1;
-      rows.push({
-        redirecting_domain: entry.domain,
-        target_domain: target,
-        title: entry.label === entry.domain ? '' : entry.label,
-        description: entry.description,
-        source_url: url,
-        page: pageNum,
-        checked_at: checkedAt,
-      });
-    }
-
-    log.debug(`${target} page ${pageNum}: +${added} (total so far ${rows.length})`);
-
-    if (added === 0 && pageNum > 1) break; // pagination looped back on itself
-    if (pageNum === 1 && rows.length === 0 && looksEmpty(html)) break;
-    if (config.limitPerDomain && rows.length >= config.limitPerDomain) {
-      rows.length = config.limitPerDomain;
-      break;
-    }
-
-    pageNum = parsed.nextPage;
-    if (pageNum) await sleep(jitter(config.delay));
+  await dump(config, `${target}.html`, html);
+  const parsed = parseDomainPage(html, target);
+  if (!parsed.found) {
+    return {
+      domain: target, rows: [], total: null, listing: 'none', pages: 1,
+      status: 'no_redirects_section', sourceUrl: url, via, checkedAt,
+    };
   }
+
+  let rows = parsed.domains.map((d) => ({ redirecting_domain: d, source_url: url }));
+  let listing = 'sample';
+  let pages = 1;
+
+  const wantsMore = config.followShowAll && parsed.showAllPath &&
+    (parsed.total === null || parsed.total > rows.length);
+  if (wantsMore) {
+    await sleep(jitter(config.delay));
+    const full = await scrapeFullList(context, target, config, log).catch((error) => {
+      log.warn(`${target}: full list failed (${String(error.message).split('\n')[0]})`);
+      return null;
+    });
+    if (full) {
+      rows = full.rows;
+      listing = 'full';
+      pages += full.pages;
+    }
+  }
+
+  if (config.limitPerDomain && rows.length > config.limitPerDomain) {
+    rows.length = config.limitPerDomain;
+  }
+
+  let status = 'ok';
+  if (rows.length === 0) status = 'empty';
+  else if (parsed.total !== null && rows.length < parsed.total) status = 'partial';
 
   return {
     domain: target,
-    rows,
-    total,
+    rows: rows.map((row) => ({
+      redirecting_domain: row.redirecting_domain,
+      target_domain: target,
+      listing,
+      source_url: row.source_url,
+      checked_at: checkedAt,
+    })),
+    total: parsed.total,
+    listing,
     pages,
-    status: rows.length ? 'ok' : 'empty',
-    error: null,
+    status,
+    sourceUrl: url,
+    via,
     checkedAt,
   };
 }

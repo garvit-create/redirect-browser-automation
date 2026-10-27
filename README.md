@@ -4,9 +4,17 @@ Browser automation that, for every company domain in a list, collects the
 **domains redirecting to it** from [host.io](https://host.io) and writes one CSV
 per domain.
 
-For each input domain it drives headless Chromium through
-`https://host.io/redirects/<domain>`, follows the pagination, and writes
-`output/<domain>.csv` plus a run-level `output/_summary.csv`.
+For each input domain it drives headless Chromium to the host.io homepage,
+types the domain into the search box, and reads the **Redirects** section of
+the resulting domain page — host.io's own count plus the sample it lists — then
+writes `output/<domain>.csv` and a run-level `output/_summary.csv`.
+
+host.io gates the complete list (`/redirects/<domain>`, the "Show All" link)
+behind an account: anonymous visitors get HTTP 404 there, in a real browser as
+much as over curl. The scraper tries it anyway and falls back to the sample,
+recording `listing=sample` and `status=partial` so a truncated result is never
+mistaken for a complete one. Pass `--storage-state` with a signed-in session to
+get the full list.
 
 ## Install
 
@@ -47,6 +55,8 @@ node src/cli.js -n 3 --max-pages 1 --save-html
 | `--retries` / `--backoff` | retry count and base backoff, doubled per attempt |
 | `--storage-state <file>` | Playwright `storageState` JSON for a logged-in host.io session |
 | `--save-html` | dump each fetched page under `--debug-dir` |
+| `--direct` | skip the search box, go straight to `/<domain>` |
+| `--follow-show-all=false` | don't attempt the gated full listing |
 | `--base-url <url>` | point at a stand-in server (used by the tests) |
 
 ## Output
@@ -54,21 +64,22 @@ node src/cli.js -n 3 --max-pages 1 --save-html
 `output/<domain>.csv` — one row per domain that redirects to the company domain:
 
 ```csv
-redirecting_domain,target_domain,title,description,source_url,page,checked_at
-stripe.co,stripe.com,,Stripe | Financial Infrastructure for the Internet,https://host.io/redirects/stripe.com,1,2026-10-27T14:43:01.487Z
+redirecting_domain,target_domain,listing,source_url,checked_at
+stripecdn.com,stripe.com,sample,https://host.io/stripe.com,2026-10-27T14:57:23.356Z
 ```
 
 `output/_summary.csv` — one row per input domain:
 
 ```csv
-target_domain,redirecting_domain_count,reported_total,pages_scraped,status,error,csv_file,checked_at
-stripe.com,5,124,2,ok,,stripe.com.csv,2026-10-27T14:43:01.487Z
+target_domain,redirecting_domain_count,reported_total,listing,pages_scraped,status,error,source_url,csv_file,checked_at
+stripe.com,24,1277,sample,1,partial,,https://host.io/stripe.com,stripe.com.csv,2026-10-27T14:57:23.356Z
 ```
 
-`reported_total` is the count host.io prints on the page, so it shows when
-pagination or a plan limit cut the list short. `status` is `ok`, `empty`,
-`rate_limited`, `challenge`, `paywalled` or `error`; the exit code is `2` if any
-domain failed.
+`reported_total` is host.io's own count, so comparing it with
+`redirecting_domain_count` shows how much of the list you actually got.
+`status` is `ok` (count matches the total), `partial` (sample only), `empty`,
+`no_redirects_section`, `rate_limited`, `challenge`, `paywalled` or `error`;
+the exit code is `2` if any domain failed.
 
 ## Layout
 
@@ -83,7 +94,17 @@ test/            unit tests over saved host.io fixtures + an end-to-end CLI run
 
 Parsing is deliberately kept out of the browser: the scraper hands raw HTML to
 `parse.js`, so selector changes on host.io can be reproduced from a saved
-fixture (`--save-html`) instead of a live run.
+fixture (`--save-html`) instead of a live run. The fixtures in `test/fixtures/`
+are trimmed copies of real host.io pages.
+
+Browser setup follows [Camoufox](https://github.com/daijro/camoufox)'s
+reasoning about detectable automation: the context is kept internally
+consistent (the engine's own user agent, one locale and timezone, a real
+viewport) rather than spoofing a user agent the rest of the fingerprint would
+contradict, and the search box is typed into with per-key delays instead of
+being filled in one shot. host.io serves this setup fine; if a target does
+fingerprint-block it, Camoufox itself is the drop-in next step — it wraps the
+same Playwright API, so only `openBrowser()` in `src/scraper.js` changes.
 
 ## Tests
 
@@ -98,19 +119,14 @@ real CLI with `--base-url` against it, so no network access is needed.
 
 - **Network access.** `host.io` must be reachable from wherever this runs. In a
   restricted environment the run fails with a proxy/connection error per domain.
-- **`/redirects/<domain>` is login-gated.** Verified against the live site:
-  anonymous visitors get HTTP 404 from `https://host.io/redirects/<domain>`,
-  in a real browser as well as over curl. The counts and a 7-domain sample are
-  on the plain domain page (`https://host.io/<domain>`, *Redirects* section,
-  e.g. "There are 1,277 domains which redirect to stripe.com" with a "Show All"
-  link to the gated page). The scraper still targets the gated URL, so an
-  anonymous run fails per domain — pass `--storage-state` with a logged-in
-  session, or switch it to the domain page for the sample. Unresolved.
-- **host.io limits.** Anonymous visitors see a truncated redirect list and get
-  rate-limited; a signed-in session (`--storage-state`) and a low
-  `--concurrency` with a non-zero `--delay` go further. If you have a host.io
-  API token, their API is cheaper than scraping — this tool exists for the
-  browser path.
+- **The sample caps out at 24 domains.** That is what host.io renders on the
+  domain page, so any target with more than 24 redirects comes back `partial`
+  until you supply a signed-in `--storage-state`. If you have a host.io API
+  token, their API is cheaper than scraping — this tool exists for the browser
+  path.
+- **Be polite.** Keep `--concurrency` low with a non-zero `--delay`; the
+  scraper also detects rate-limit and challenge pages and records them per
+  domain rather than hammering on.
 - **Markup drift.** `parse.js` identifies result rows by their link shape
   (`/<domain>` pages inside the results region, nav/footer excluded) rather than
   by brittle CSS classes, but a redesign can still change what counts as a row.

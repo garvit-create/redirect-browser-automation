@@ -8,13 +8,12 @@ import { openBrowser, scrapeDomain } from './scraper.js';
 import { appendCsv, readDomainList, writeCsv } from './csv.js';
 
 const DOMAIN_CSV_HEADER = [
-  'redirecting_domain', 'target_domain', 'title', 'description',
-  'source_url', 'page', 'checked_at',
+  'redirecting_domain', 'target_domain', 'listing', 'source_url', 'checked_at',
 ];
 
 const SUMMARY_HEADER = [
-  'target_domain', 'redirecting_domain_count', 'reported_total', 'pages_scraped',
-  'status', 'error', 'csv_file', 'checked_at',
+  'target_domain', 'redirecting_domain_count', 'reported_total', 'listing',
+  'pages_scraped', 'status', 'error', 'source_url', 'csv_file', 'checked_at',
 ];
 
 /** Collapse a multi-line driver error into one short CSV-friendly line. */
@@ -92,15 +91,18 @@ async function main(argv) {
           result.rows.map((row) => DOMAIN_CSV_HEADER.map((key) => row[key])),
         );
         summaryRows.push([
-          domain, result.rows.length, result.total ?? '', result.pages,
-          result.status, '', path.relative(config.outDir, csvFile), result.checkedAt,
+          domain, result.rows.length, result.total ?? '', result.listing,
+          result.pages, result.status, '', result.sourceUrl,
+          path.relative(config.outDir, csvFile), result.checkedAt,
         ]);
-        log.info(`[${position}] ${domain}: ${result.rows.length} redirecting domain(s) -> ${csvFile}`);
+        const of = result.total === null ? '' : ` of ${result.total} reported`;
+        log.info(`[${position}] ${domain}: ${result.rows.length}${of} (${result.listing}, via ${result.via}) -> ${csvFile}`);
       } catch (error) {
         failures += 1;
         const kind = error.name === 'BlockedError' ? error.kind : 'error';
         summaryRows.push([
-          domain, 0, '', 0, kind, errorLine(error), '', new Date().toISOString(),
+          domain, 0, '', '', 0, kind, errorLine(error), '', '',
+          new Date().toISOString(),
         ]);
         log.error(`[${position}] ${domain}: ${kind} — ${errorLine(error)}`);
       }

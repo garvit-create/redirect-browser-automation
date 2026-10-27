@@ -19,6 +19,8 @@ export const DEFAULTS = {
   userAgent: '',
   storageState: '',
   baseUrl: 'https://host.io',
+  direct: false,
+  followShowAll: true,
   logLevel: 'info',
 };
 
@@ -26,7 +28,9 @@ const NUMERIC = new Set([
   'concurrency', 'delay', 'timeout', 'retries', 'backoff', 'maxPages',
   'limitPerDomain', 'limit',
 ]);
-const BOOLEAN = new Set(['headful', 'saveHtml', 'resume', 'force', 'help']);
+const BOOLEAN = new Set([
+  'headful', 'saveHtml', 'resume', 'force', 'help', 'direct', 'followShowAll',
+]);
 
 const ALIASES = {
   i: 'input', o: 'outDir', c: 'concurrency', n: 'limit', h: 'help',
@@ -34,6 +38,7 @@ const ALIASES = {
   'limit-per-domain': 'limitPerDomain', 'save-html': 'saveHtml',
   'debug-dir': 'debugDir', 'user-agent': 'userAgent',
   'storage-state': 'storageState', 'log-level': 'logLevel',
+  'follow-show-all': 'followShowAll', 'no-follow-show-all': 'followShowAll',
 };
 
 const camel = (flag) => ALIASES[flag] ?? flag.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
@@ -78,6 +83,13 @@ redirect-scrape — collect the domains redirecting to each company domain (via 
 
 Usage:
   node src/cli.js [input-file] [options]
+
+How it works:
+  For each domain the browser opens host.io, types the domain into the search
+  box, and reads the "Redirects" section of the resulting domain page. That
+  section carries host.io's own count plus a sample of the list; the full
+  listing (/redirects/<domain>) needs a signed-in session, so pass
+  --storage-state to get beyond the sample.
 
 Options:
   -i, --input <file>        domain list, .txt or .csv (default: input/domains.txt)

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   detectBlock, domainFromPath, looksEmpty, normalizeDomain,
-  parseNextPage, parseRedirectsPage, parseTotal,
+  parseDomainPage, parseNextPage, parseRedirectsPage, parseTotal,
 } from '../src/parse.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -52,4 +52,30 @@ test('parseTotal and looksEmpty handle the no-results page', async () => {
 test('detectBlock recognises a rate-limit page', async () => {
   assert.equal(detectBlock(await fixture('rate-limited.html')), 'rate_limited');
   assert.equal(detectBlock(await fixture('redirects-page1.html')), null);
+});
+
+test('parseDomainPage reads the Redirects section of a host.io domain page', async () => {
+  const html = await fixture('domain-page.html');
+  const { domains, total, showAllPath, found } = parseDomainPage(html, 'stripe.com');
+  assert.equal(found, true);
+  assert.equal(total, 1277); // host.io's own count, far above the sample
+  assert.equal(showAllPath, '/redirects/stripe.com');
+  assert.deepEqual(domains, [
+    'stripecdn.com', 'kingsdemolition.com', 'bettersugarnow.com',
+    'closeitnowbootcamplg.com', 'wspieramkosciol.pl', 'paytherapywithkrysta.com',
+  ]);
+});
+
+test('parseDomainPage reports zero without swallowing the next section', async () => {
+  const html = await fixture('domain-page-no-redirects.html');
+  const parsed = parseDomainPage(html, 'b2bconsultancyservices.com');
+  assert.equal(parsed.found, true);
+  assert.equal(parsed.total, 0);
+  assert.equal(parsed.showAllPath, null);
+  assert.deepEqual(parsed.domains, []);
+});
+
+test('parseDomainPage reports a missing section', async () => {
+  const parsed = parseDomainPage('<html><body><p>nothing here</p></body></html>', 'x.com');
+  assert.equal(parsed.found, false);
 });

@@ -1,5 +1,6 @@
 node_modules/
-output/
+# results are committed for this run; drop this line to ignore them again
+#output/
 debug/
 *.log
 .DS_Store
