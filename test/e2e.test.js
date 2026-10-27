@@ -71,14 +71,16 @@ test('cli searches from the homepage and writes one CSV per domain', { timeout: 
 
   const csv = await readFile(path.join(outDir, 'stripe.com.csv'), 'utf8');
   const lines = csv.trim().split('\r\n');
-  assert.equal(lines[0], 'redirecting_domain,target_domain,listing,source_url,checked_at');
+  assert.equal(lines[0], 'redirecting_domain,target_domain,reported_total,listing,source_url,checked_at');
   // The listing page wins over the domain page's shorter sample, 404 or not.
   assert.deepEqual(lines.slice(1).map((line) => line.split(',')[0]), [
     'stripecdn.com', 'kingsdemolition.com', 'bettersugarnow.com',
     'closeitnowbootcamplg.com', 'wspieramkosciol.pl', 'paytherapywithkrysta.com',
     'subtractionmethodmastery.com', 'bosscustomer.com',
   ]);
-  assert.ok(lines.slice(1).every((line) => line.split(',')[2] === 'full'), csv);
+  // Each row carries host.io's own total (1,277) next to the 8 it served.
+  assert.ok(lines.slice(1).every((line) => line.split(',')[2] === '1277'), csv);
+  assert.ok(lines.slice(1).every((line) => line.split(',')[3] === 'full'), csv);
 
   // The search box was used, and the gated listing was attempted and refused.
   assert.ok(seen.includes('/search?domain=stripe.com'), seen.join(' '));

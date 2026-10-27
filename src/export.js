@@ -38,11 +38,20 @@ async function readSummary(outDir) {
   return byDomain;
 }
 
-/** Read the domains collected for one target. */
+/**
+ * Read one target's CSV: the domains collected and, when the file carries it,
+ * host.io's reported total — so an export works without the run summary.
+ */
 async function readDomainCsv(outDir, domain) {
   const rows = await read(path.join(outDir, `${domain}.csv`));
-  if (!rows || rows.length < 2) return [];
-  return rows.slice(1).map((row) => row[0]).filter(Boolean);
+  if (!rows || rows.length < 2) return { domains: [], reportedTotal: null };
+  const totalIdx = rows[0].map((c) => c.trim()).indexOf('reported_total');
+  const body = rows.slice(1).filter((row) => row[0]);
+  const reported = totalIdx === -1 ? null : Number(body[0]?.[totalIdx]);
+  return {
+    domains: body.map((row) => row[0]),
+    reportedTotal: Number.isFinite(reported) ? reported : null,
+  };
 }
 
 export async function buildCombined(companyFile, outDir) {
@@ -51,10 +60,11 @@ export async function buildCombined(companyFile, outDir) {
   const out = [];
   for (const { domain, company } of companies) {
     const normalized = normalizeDomain(domain);
-    const collected = await readDomainCsv(outDir, normalized);
+    const { domains: collected, reportedTotal } = await readDomainCsv(outDir, normalized);
     const entry = summary.get(normalized);
-    const reported = entry && entry.reportedTotal !== '' ? Number(entry.reportedTotal) : null;
-    const count = Number.isFinite(reported) ? reported : collected.length;
+    const fromSummary = entry && entry.reportedTotal !== '' ? Number(entry.reportedTotal) : null;
+    const reported = Number.isFinite(fromSummary) ? fromSummary : reportedTotal;
+    const count = reported === null ? collected.length : reported;
     out.push([company, normalized, count, collected.join(SEPARATOR)]);
   }
   return out;

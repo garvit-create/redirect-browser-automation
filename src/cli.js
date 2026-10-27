@@ -8,7 +8,8 @@ import { openBrowser, scrapeDomain } from './scraper.js';
 import { appendCsv, parseCsv, readDomainList, writeCsv } from './csv.js';
 
 const DOMAIN_CSV_HEADER = [
-  'redirecting_domain', 'target_domain', 'listing', 'source_url', 'checked_at',
+  'redirecting_domain', 'target_domain', 'reported_total', 'listing',
+  'source_url', 'checked_at',
 ];
 
 const SUMMARY_HEADER = [

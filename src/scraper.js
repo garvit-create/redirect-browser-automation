@@ -261,6 +261,7 @@ export async function scrapeDomain(context, domain, config, log) {
     rows: rows.map((row) => ({
       redirecting_domain: row.redirecting_domain,
       target_domain: target,
+      reported_total: parsed.total ?? '',
       listing,
       source_url: row.source_url,
       checked_at: checkedAt,
