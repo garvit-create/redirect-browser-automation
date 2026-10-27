@@ -4,3 +4,6 @@ node_modules/
 debug/
 *.log
 .DS_Store
+
+# live run directory; finished results are committed explicitly with `git add -f`
+tier2-output/
