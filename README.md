@@ -9,12 +9,13 @@ types the domain into the search box, and reads the **Redirects** section of
 the resulting domain page — host.io's own count plus the sample it lists — then
 writes `output/<domain>.csv` and a run-level `output/_summary.csv`.
 
-host.io gates the complete list (`/redirects/<domain>`, the "Show All" link)
-behind an account: anonymous visitors get HTTP 404 there, in a real browser as
-much as over curl. The scraper tries it anyway and falls back to the sample,
-recording `listing=sample` and `status=partial` so a truncated result is never
-mistaken for a complete one. Pass `--storage-state` with a signed-in session to
-get the full list.
+It then follows the "Show All" link to `/redirects/<domain>`, which host.io
+serves with a **404 status but a real body** — up to 48 domains, with the page
+itself saying "To view all the domains, please use our API". The body is
+parsed regardless of the status; rows are marked `listing=full` when they come
+from there and `listing=sample` when only the domain page was readable, and
+`status=partial` whenever the count falls short of host.io's own total, so a
+truncated result is never mistaken for a complete one.
 
 ## Install
 
@@ -119,11 +120,11 @@ real CLI with `--base-url` against it, so no network access is needed.
 
 - **Network access.** `host.io` must be reachable from wherever this runs. In a
   restricted environment the run fails with a proxy/connection error per domain.
-- **The sample caps out at 24 domains.** That is what host.io renders on the
-  domain page, so any target with more than 24 redirects comes back `partial`
-  until you supply a signed-in `--storage-state`. If you have a host.io API
-  token, their API is cheaper than scraping — this tool exists for the browser
-  path.
+- **48 domains is the hard ceiling.** The domain page renders 24, the "Show
+  All" listing 48, and it carries no pagination links at all — verified on
+  `stripe.com` (1,277 reported, 48 served). Past that, host.io's own answer is
+  their API; no amount of browser automation gets further, and anything above
+  48 comes back `partial` by design.
 - **Be polite.** Keep `--concurrency` low with a non-zero `--delay`; the
   scraper also detects rate-limit and challenge pages and records them per
   domain rather than hammering on.

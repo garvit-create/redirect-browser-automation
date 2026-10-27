@@ -79,3 +79,12 @@ test('parseDomainPage reports a missing section', async () => {
   const parsed = parseDomainPage('<html><body><p>nothing here</p></body></html>', 'x.com');
   assert.equal(parsed.found, false);
 });
+
+test('parseRedirectsPage reads the full listing page host.io serves with a 404', async () => {
+  const html = await fixture('full-list.html');
+  const { domains, total, nextPage } = parseRedirectsPage(html, 'stripe.com', 1);
+  assert.equal(total, 1277);
+  assert.equal(nextPage, null); // the listing is one page, capped by host.io
+  assert.equal(domains.length, 8);
+  assert.equal(domains[0].domain, 'stripecdn.com');
+});

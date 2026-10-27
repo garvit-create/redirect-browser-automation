@@ -1,9 +1,9 @@
 target_domain,redirecting_domain_count,reported_total,listing,pages_scraped,status,error,source_url,csv_file,checked_at
-b2bconsultancyservices.com,0,0,sample,1,empty,,https://host.io/b2bconsultancyservices.com,b2bconsultancyservices.com.csv,2026-10-27T14:57:37.015Z
-b2bdrive.net,24,209,sample,1,partial,,https://host.io/b2bdrive.net,b2bdrive.net.csv,2026-10-27T14:57:37.016Z
-b2bleadsai.com,6,6,sample,1,ok,,https://host.io/b2bleadsai.com,b2bleadsai.com.csv,2026-10-27T14:57:41.862Z
-b2bprospectbridge.com,1,1,sample,1,ok,,https://host.io/b2bprospectbridge.com,b2bprospectbridge.com.csv,2026-10-27T14:57:43.051Z
-b2bwizards.io,24,72,sample,1,partial,,https://host.io/b2bwizards.io,b2bwizards.io.csv,2026-10-27T14:57:45.242Z
-beforehello.com,1,1,sample,1,ok,,https://host.io/beforehello.com,beforehello.com.csv,2026-10-27T14:57:46.742Z
-bestleads.io,24,65,sample,1,partial,,https://host.io/bestleads.io,bestleads.io.csv,2026-10-27T14:57:49.949Z
-bettrreach.com,1,1,sample,1,ok,,https://host.io/bettrreach.com,bettrreach.com.csv,2026-10-27T14:57:52.188Z
+b2bconsultancyservices.com,0,0,sample,1,empty,,https://host.io/b2bconsultancyservices.com,b2bconsultancyservices.com.csv,2026-10-27T15:07:12.983Z
+b2bdrive.net,48,209,full,2,partial,,https://host.io/b2bdrive.net,b2bdrive.net.csv,2026-10-27T15:07:12.984Z
+b2bleadsai.com,6,6,sample,1,ok,,https://host.io/b2bleadsai.com,b2bleadsai.com.csv,2026-10-27T15:07:17.232Z
+b2bprospectbridge.com,1,1,sample,1,ok,,https://host.io/b2bprospectbridge.com,b2bprospectbridge.com.csv,2026-10-27T15:07:20.483Z
+b2bwizards.io,48,72,full,2,partial,,https://host.io/b2bwizards.io,b2bwizards.io.csv,2026-10-27T15:07:20.897Z
+beforehello.com,1,1,sample,1,ok,,https://host.io/beforehello.com,beforehello.com.csv,2026-10-27T15:07:23.938Z
+bestleads.io,48,65,full,2,partial,,https://host.io/bestleads.io,bestleads.io.csv,2026-10-27T15:07:27.843Z
+bettrreach.com,1,1,sample,1,ok,,https://host.io/bettrreach.com,bettrreach.com.csv,2026-10-27T15:07:28.011Z

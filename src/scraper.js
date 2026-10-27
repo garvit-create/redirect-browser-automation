@@ -143,8 +143,14 @@ async function dump(config, name, html) {
 }
 
 /**
- * Try the full "Show All" listing, which host.io gates behind an account.
- * Returns null when it is not reachable, so the sample is kept instead.
+ * Follow the "Show All" listing (/redirects/<domain>).
+ *
+ * host.io serves this page with a 404 *status* while returning a real listing
+ * in the body — roughly 48 domains for anonymous visitors, with the rest
+ * behind their API. So the body is parsed first and the status only decides
+ * what to do when there is nothing in it.
+ *
+ * Returns null when no listing could be read, so the caller keeps the sample.
  */
 async function scrapeFullList(context, target, config, log) {
   const rows = [];
@@ -158,17 +164,20 @@ async function scrapeFullList(context, target, config, log) {
     try {
       const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
       const status = response ? response.status() : 0;
-      if (status === 404 || status === 401 || status === 403) {
-        log.debug(`${target}: full list not available (HTTP ${status}) — sign in for it`);
-        return null;
-      }
       if (status === 429 || status === 503) throw new BlockedError('rate_limited', url);
-      if (status >= 400) throw new Error(`HTTP ${status} for ${url}`);
 
       const html = await htmlOf(page, url);
       await dump(config, `${target}-full-p${pageNum}.html`, html);
       const parsed = parseRedirectsPage(html, target, pageNum);
       pages += 1;
+
+      if (parsed.domains.length === 0) {
+        if (status >= 400 && rows.length === 0) {
+          log.debug(`${target}: no listing on ${url} (HTTP ${status})`);
+          return null;
+        }
+        break;
+      }
 
       let added = 0;
       for (const entry of parsed.domains) {
