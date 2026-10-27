@@ -98,6 +98,14 @@ real CLI with `--base-url` against it, so no network access is needed.
 
 - **Network access.** `host.io` must be reachable from wherever this runs. In a
   restricted environment the run fails with a proxy/connection error per domain.
+- **`/redirects/<domain>` is login-gated.** Verified against the live site:
+  anonymous visitors get HTTP 404 from `https://host.io/redirects/<domain>`,
+  in a real browser as well as over curl. The counts and a 7-domain sample are
+  on the plain domain page (`https://host.io/<domain>`, *Redirects* section,
+  e.g. "There are 1,277 domains which redirect to stripe.com" with a "Show All"
+  link to the gated page). The scraper still targets the gated URL, so an
+  anonymous run fails per domain — pass `--storage-state` with a logged-in
+  session, or switch it to the domain page for the sample. Unresolved.
 - **host.io limits.** Anonymous visitors see a truncated redirect list and get
   rate-limited; a signed-in session (`--storage-state`) and a low
   `--concurrency` with a non-zero `--delay` go further. If you have a host.io

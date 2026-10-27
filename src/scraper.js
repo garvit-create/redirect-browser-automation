@@ -23,10 +23,6 @@ function loadChromium() {
   }
 }
 
-const DEFAULT_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
-
 export const redirectsUrl = (domain, page = 1, baseUrl = 'https://host.io') => {
   const base = `${baseUrl.replace(/\/+$/, '')}/redirects/${encodeURIComponent(normalizeDomain(domain))}`;
   return page > 1 ? `${base}?page=${page}` : base;
@@ -39,7 +35,7 @@ const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
 export async function openBrowser(config) {
   const browser = await loadChromium().launch({ headless: !config.headful });
   const context = await browser.newContext({
-    userAgent: config.userAgent || DEFAULT_UA,
+    userAgent: config.userAgent || undefined, // Chromium's own UA unless overridden
     viewport: { width: 1366, height: 900 },
     locale: 'en-US',
     storageState: config.storageState || undefined,
