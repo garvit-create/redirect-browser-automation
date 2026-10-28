@@ -17,12 +17,15 @@ const SUMMARY_HEADER = [
   'pages_scraped', 'status', 'error', 'source_url', 'csv_file', 'checked_at',
 ];
 
-/** Rows already in the summary before this run's own appended rows. */
-async function readSummaryRows(file, appended) {
+/** Existing summary rows, or [] when there is no readable summary yet. */
+async function readSummaryRows(file) {
   const { readFile } = await import('node:fs/promises');
-  const rows = parseCsv(await readFile(file, 'utf8')).filter((r) => r.some((c) => c !== ''));
-  const body = rows.slice(1); // header
-  return body.slice(0, Math.max(body.length - appended, 0));
+  try {
+    const rows = parseCsv(await readFile(file, 'utf8')).filter((r) => r.some((c) => c !== ''));
+    return rows.slice(1); // drop the header
+  } catch {
+    return [];
+  }
 }
 
 /** Collapse a multi-line driver error into one short CSV-friendly line. */
@@ -82,10 +85,12 @@ async function main(argv) {
   const summaryRows = [];
   let failures = 0;
 
-  // The summary is appended as domains finish, so a long run that is
-  // interrupted (or read while still going) still has its counts on disk.
-  const startFresh = !(config.resume && (await exists(config.summaryPath)));
-  if (startFresh) await writeCsv(config.summaryPath, SUMMARY_HEADER, []);
+  // Rows for domains this run is not touching are carried over: a run over a
+  // handful of domains must not drop the rest of an existing summary. Rows are
+  // then appended as domains finish, so an interrupted run keeps its counts.
+  const inherited = (await readSummaryRows(config.summaryPath))
+    .filter((row) => !seen.has(row[0]));
+  await writeCsv(config.summaryPath, SUMMARY_HEADER, inherited);
   const record = async (row) => {
     summaryRows.push(row);
     await appendCsv(config.summaryPath, SUMMARY_HEADER, [row]);
@@ -130,11 +135,9 @@ async function main(argv) {
     await browser.close().catch(() => {});
   }
 
-  if (summaryRows.length) {
-    // Rewrite in domain order now that the appended, completion-ordered rows
-    // are all in; a resumed run keeps the rows it inherited.
-    const previous = startFresh ? [] : (await readSummaryRows(config.summaryPath, summaryRows.length));
-    const all = [...previous, ...summaryRows]
+  if (summaryRows.length || inherited.length) {
+    // Rewrite in domain order now the appended, completion-ordered rows are in.
+    const all = [...inherited, ...summaryRows]
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     await writeCsv(config.summaryPath, SUMMARY_HEADER, all);
     log.info(`Summary written to ${config.summaryPath}`);

@@ -107,8 +107,18 @@ export function looksEmpty(html) {
   return /no\s+(?:redirects|domains|results)\b|we\s+(?:could not|couldn'?t)\s+find/i.test(textOf(html));
 }
 
-/** Detect a block page (rate limit, captcha, login wall). */
+// A real host.io page carries one of these; a block page carries neither.
+const CONTENT_MARKERS = /id=["'][a-z-]+-tab["']|Domains Redirecting to/i;
+
+/**
+ * Detect a block page (rate limit, captcha, login wall).
+ *
+ * Only pages that are *not* host.io content are examined: the phrases below
+ * occur in ordinary page text too — a company whose host.io description reads
+ * "Rate limiting, observability, and compliance built in" is not a 429.
+ */
 export function detectBlock(html) {
+  if (CONTENT_MARKERS.test(html)) return null;
   const text = textOf(html).toLowerCase();
   if (/rate\s*limit|too many requests/.test(text)) return 'rate_limited';
   if (/just a moment|checking your browser|cf-challenge|captcha/.test(text)) return 'challenge';

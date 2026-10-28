@@ -94,3 +94,27 @@ test('cli searches from the homepage and writes one CSV per domain', { timeout: 
   assert.match(summary, /^stripe\.com,8,1277,full,\d+,partial,,/m);
   assert.match(summary, /^b2bconsultancyservices\.com,0,0,sample,\d+,empty,,/m);
 });
+
+test('a later run keeps summary rows for domains it does not touch', { timeout: 120000 }, async (t) => {
+  const { server, baseUrl } = await startFakeHostIo();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const dir = await mkdtemp(path.join(tmpdir(), 'redirects-keep-'));
+  const outDir = path.join(dir, 'out');
+  const both = path.join(dir, 'both.txt');
+  const one = path.join(dir, 'one.txt');
+  await writeFile(both, 'stripe.com\nb2bconsultancyservices.com\n');
+  await writeFile(one, 'stripe.com\n');
+  const cli = (input) => run('node', [
+    path.join(root, 'src/cli.js'),
+    '--input', input, '--out', outDir, '--base-url', baseUrl,
+    '--delay', '0', '--concurrency', '1', '--retries', '0', '--log-level', 'silent',
+  ], { cwd: root });
+
+  await cli(both);
+  await cli(one); // a one-domain re-run must not wipe the other row
+
+  const summary = await readFile(path.join(outDir, '_summary.csv'), 'utf8');
+  assert.match(summary, /^b2bconsultancyservices\.com,/m, summary);
+  assert.match(summary, /^stripe\.com,/m, summary);
+});

@@ -88,3 +88,11 @@ test('parseRedirectsPage reads the full listing page host.io serves with a 404',
   assert.equal(domains.length, 8);
   assert.equal(domains[0].domain, 'stripecdn.com');
 });
+
+test('detectBlock ignores block phrases inside a real host.io page', async () => {
+  const html = (await fixture('domain-page.html')).replace(
+    '<main>',
+    '<main><p>Description Deploy LLMs and AI agents. Rate limiting, observability, and compliance built in.</p>',
+  );
+  assert.equal(detectBlock(html), null);
+});
