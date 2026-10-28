@@ -31,6 +31,19 @@ export const redirectsUrl = (domain, page = 1, baseUrl = 'https://host.io') => {
   return page > 1 ? `${base}?page=${page}` : base;
 };
 
+/**
+ * Split a proxy URL into Playwright's proxy option.
+ * Credentials stay in the URL the caller passes (flag or env), never in code.
+ */
+export function parseProxy(url) {
+  if (!url) return undefined;
+  const parsed = new URL(url);
+  const server = `${parsed.protocol}//${parsed.host}`;
+  const username = decodeURIComponent(parsed.username || '');
+  const password = decodeURIComponent(parsed.password || '');
+  return username ? { server, username, password } : { server };
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
 
@@ -42,8 +55,10 @@ const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
  * spoofing a user agent the rest of the fingerprint would contradict.
  */
 export async function openBrowser(config) {
-  const browser = await loadChromium().launch({ headless: !config.headful });
+  const proxy = parseProxy(config.proxy);
+  const browser = await loadChromium().launch({ headless: !config.headful, proxy });
   const context = await browser.newContext({
+    proxy,
     userAgent: config.userAgent || undefined,
     viewport: { width: 1366, height: 900 },
     locale: 'en-US',

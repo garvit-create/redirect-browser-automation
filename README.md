@@ -58,6 +58,7 @@ node src/cli.js -n 3 --max-pages 1 --save-html
 | `--save-html` | dump each fetched page under `--debug-dir` |
 | `--direct` | skip the search box, go straight to `/<domain>` |
 | `--follow-show-all=false` | don't attempt the gated full listing |
+| `--proxy <url>` | route the browser through a proxy (or set `HOSTIO_PROXY`) |
 | `--base-url <url>` | point at a stand-in server (used by the tests) |
 
 ## Output
@@ -125,6 +126,18 @@ real CLI with `--base-url` against it, so no network access is needed.
   `stripe.com` (1,277 reported, 48 served). Past that, host.io's own answer is
   their API; no amount of browser automation gets further, and anything above
   48 comes back `partial` by design.
+- **host.io limits by IP, measured.** A run at 3 workers with a 1.2s delay
+  stayed clean for ~1,240 page loads (12 minutes) before the first HTTP 429,
+  and after ~5,000 loads in a day even 30s spacing was refused until the next
+  morning — roughly 2,000 domains per day from one IP. The counter follows the
+  IP, not the session: a fresh browser process was refused immediately, so
+  more tabs only spend the budget faster. Past a few thousand domains the
+  lever is distinct egress IPs. `--proxy` takes a rotating proxy
+  (`http://user:pass@host:port`) and gives each request a different IP;
+  credentials come from the flag or `HOSTIO_PROXY` and are never stored here.
+  Chromium speaks to one proxy only and cannot chain, so it needs to reach
+  that proxy directly — inside a sandbox whose own egress is a proxy, run the
+  scraper outside it instead.
 - **Be polite.** Keep `--concurrency` low with a non-zero `--delay`; the
   scraper also detects rate-limit and challenge pages and records them per
   domain rather than hammering on.

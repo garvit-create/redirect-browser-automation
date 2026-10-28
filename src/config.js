@@ -20,6 +20,9 @@ export const DEFAULTS = {
   storageState: '',
   baseUrl: 'https://host.io',
   direct: false,
+  // A rotating proxy lifts host.io's per-IP ceiling; credentials come from the
+  // flag or HOSTIO_PROXY, so they are never stored in the repo.
+  proxy: process.env.HOSTIO_PROXY || '',
   followShowAll: true,
   logLevel: 'info',
 };

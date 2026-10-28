@@ -96,3 +96,15 @@ test('detectBlock ignores block phrases inside a real host.io page', async () =>
   );
   assert.equal(detectBlock(html), null);
 });
+
+test('parseProxy splits credentials out of a proxy URL', async () => {
+  const { parseProxy } = await import('../src/scraper.js');
+  // :80 is http's default port, so the URL parser drops it — same endpoint.
+  assert.deepEqual(parseProxy('http://user-rotate:se%40cret@p.example.io:80'), {
+    server: 'http://p.example.io',
+    username: 'user-rotate',
+    password: 'se@cret',
+  });
+  assert.deepEqual(parseProxy('http://p.example.io:3128'), { server: 'http://p.example.io:3128' });
+  assert.equal(parseProxy(''), undefined);
+});
